@@ -4,6 +4,7 @@ import {
   OnModuleDestroy,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '../../generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
@@ -15,9 +16,13 @@ export class DatabaseService
 {
   private readonly logger = new Logger(DatabaseService.name);
 
-  constructor() {
+  constructor(private readonly configService: ConfigService) {
+    const url = configService.get<string>('DATABASE_URL');
+    if (!url) {
+      throw new Error('DATABASE_URL is not defined');
+    }
     const adapter = new PrismaPg({
-      connectionString: process.env.DATABASE_URL as string,
+      connectionString: url,
     });
     super({
       adapter,
