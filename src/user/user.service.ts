@@ -1,13 +1,7 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { DatabaseService } from 'src/database/database.service';
-import { Prisma } from '../../generated/prisma/client';
-import { InternalServerErrorException } from '@nestjs/common/exceptions/internal-server-error.exception';
 
 @Injectable()
 export class UserService {
@@ -15,7 +9,7 @@ export class UserService {
 
   async findAll() {
     const users = await this.databaseService.user.findMany();
-    return { message: 'Users retrieved', data: users };
+    return users;
   }
 
   async findOne(id: number) {
@@ -25,93 +19,88 @@ export class UserService {
     }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, ...userWithoutPassword } = user;
-    return { message: 'User found', data: userWithoutPassword };
+    return userWithoutPassword;
   }
 
   async create(data: CreateUserDto) {
-    try {
-      const user = await this.databaseService.user.create({ data });
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { password, ...userWithoutPassword } = user;
-      return { message: 'User created', data: userWithoutPassword };
-    } catch (error) {
-      /**
-       * MANEJO DE EXCEPCIONES ESPECÍFICAS DE PRISMA
-       * P2002: Código de error de Prisma para violación de restricción única (Unique Constraint).
-       */
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2002') {
-          throw new ConflictException(
-            'A user with the provided unique field already exists.',
-          );
-        }
-      }
-
-      /**
-       * ERROR GENÉRICO
-       * Si el error no es por duplicado, lanzamos un 500 estándar para no
-       * exponer detalles técnicos de la base de datos al cliente.
-       */
-      throw new InternalServerErrorException(
-        'Ocurrió un error inesperado al intentar crear el usuario.',
-      );
-    }
+    const user = await this.databaseService.user.create({ data });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
   }
 
   async update(id: number, dto: UpdateUserDto) {
-    try {
-      const user = await this.databaseService.user.update({
-        where: { id },
-        data: dto,
-      });
-      return { message: 'User updated', data: user };
-    } catch (error) {
-      /**
-       * MANEJO DE EXCEPCIONES ESPECÍFICAS DE PRISMA
-       * P2002: Código de error de Prisma para violación de restricción única (Unique Constraint).
-       */
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2025') {
-          throw new NotFoundException(`User with id ${id} not found`);
-        }
-      }
-
-      /**
-       * ERROR GENÉRICO
-       * Si el error no es por duplicado, lanzamos un 500 estándar para no
-       * exponer detalles técnicos de la base de datos al cliente.
-       */
-      throw new InternalServerErrorException(
-        'Ocurrió un error inesperado al intentar actualizar el usuario.',
-      );
-    }
+    const user = await this.databaseService.user.update({
+      where: { id },
+      data: dto,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
   }
 
   async remove(id: number) {
-    try {
-      const deleted = await this.databaseService.user.delete({ where: { id } });
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { password, ...safe } = deleted;
-      return { message: 'User deleted', data: safe };
-    } catch (error) {
-      /**
-       * MANEJO DE EXCEPCIONES ESPECÍFICAS DE PRISMA
-       * P2002: Código de error de Prisma para violación de restricción única (Unique Constraint).
-       */
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2025') {
-          throw new NotFoundException(`User with id ${id} not found`);
-        }
-      }
-
-      /**
-       * ERROR GENÉRICO
-       * Si el error no es por duplicado, lanzamos un 500 estándar para no
-       * exponer detalles técnicos de la base de datos al cliente.
-       */
-      throw new InternalServerErrorException(
-        'Ocurrió un error inesperado al intentar eliminar el usuario.',
-      );
-    }
+    const deleted = await this.databaseService.user.delete({ where: { id } });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, ...safe } = deleted;
+    return safe;
   }
+
+  // manualFireExceptionTest() {
+  // ----------------------------------------------------------------
+  // BLOQUE DE PRUEBA TEMPORAL PARA DISPARAR MANUALMENTE UN ERROR DE PRISMA
+  // ----------------------------------------------------------------
+  // throw new Prisma.PrismaClientKnownRequestError('Simulación de duplicado', {
+  //   code: 'P2003',
+  //   clientVersion: '7.2.0',
+  //   meta: {
+  //     modelName: 'User',
+  //     driverAdapterError: {
+  //       cause: {
+  //         constraint: { fields: ['email'] },
+  //       },
+  //     },
+  //   },
+  // });
+  // throw new Prisma.PrismaClientKnownRequestError('No encontrado', {
+  //   code: 'P2025',
+  //   clientVersion: '7.2.0',
+  //   meta: { modelName: 'Producto', cause: 'Record not found' },
+  // });
+  // throw new Prisma.PrismaClientKnownRequestError('Fallo de relación', {
+  //   code: 'P2003',
+  //   clientVersion: '7.2.0',
+  //   meta: { field_name: 'categoriaId', modelName: 'Producto' },
+  // });
+  // throw new Prisma.PrismaClientInitializationError(
+  //   'Error de conexión',
+  //   '7.2.0',
+  //   'P1001',
+  // );
+  // throw new Prisma.PrismaClientValidationError(
+  //   'Datos inconsistentes con el modelo',
+  //   {
+  //     clientVersion: '7.2.0',
+  //   },
+  // );
+  // throw new Prisma.PrismaClientKnownRequestError('Valor inválido', {
+  //   code: 'P2005',
+  //   clientVersion: '7.2.0',
+  //   meta: {
+  //     modelName: 'Producto',
+  //     field_name: 'precio', // <--- Aquí es donde tu filtro busca el dato
+  //   },
+  // });
+  // throw new Prisma.PrismaClientKnownRequestError('Valor inválido', {
+  //   code: 'P2006',
+  //   clientVersion: '7.2.0',
+  //   meta: {
+  //     modelName: 'Producto',
+  //     field_name: 'precio', // <--- Aquí es donde tu filtro busca el dato
+  //   },
+  // });
+  // ----------------------------------------------------------------
+  // Fin del bloque de prueba
+  // ----------------------------------------------------------------
+  // }
 }
