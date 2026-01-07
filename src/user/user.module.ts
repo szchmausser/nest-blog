@@ -6,5 +6,7 @@ import { DatabaseService } from 'src/database/database.service';
 @Module({
   controllers: [UserController],
   providers: [UserService, DatabaseService],
+  // Autenticacion 9.1 - Exportar UserService para que otros módulos que importen UserModule pueden usar UserService, en este caso AuthenticationService
+  exports: [UserService],
 })
 export class UserModule {}

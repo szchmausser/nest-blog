@@ -4,27 +4,39 @@ import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { UserModule } from './user/user.module';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { JwtAuthGuard } from './authentication/guards/jwt-auth.guard';
+import { AuthenticationModule } from './authentication/authentication.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    DatabaseModule,
+    DatabaseModule, // Modulo central para interactuar con la base de datos (ORM Prisma)
     UserModule,
+    AuthenticationModule, // Modulo que encapsula toda la lógica de JWT, Estrategias y autenticacion de usuarios
   ],
+
   controllers: [AppController],
+
   providers: [
     AppService,
 
     /**
-     * CONFIGURACIÓN GLOBAL DE VALIDACIÓN (ValidationPipe)
-     * Establece un estándar estricto para la entrada de datos en toda la API.
-     * Usamos 'useValue' en lugar de 'useClass' para pasarle opciones personalizadas.
+     * PROVEEDOR: APP_PIPE (Validación de Datos)
+     * Registra el ValidationPipe de forma global.
+     * - Efecto: Todos los DTOs de la aplicación serán validados automáticamente.
+     * - Beneficio: Si un cliente envía datos malformados o tipos incorrectos,
+     * NestJS rechazará la petición con un 400 Bad Request antes de llegar al servicio.
      */
     {
       provide: APP_PIPE,
+      /**
+       * CONFIGURACIÓN GLOBAL DE VALIDACIÓN (ValidationPipe)
+       * Establece un estándar estricto para la entrada de datos en toda la API.
+       * Usamos 'useValue' en lugar de 'useClass' para pasarle opciones personalizadas.
+       */
       useValue: new ValidationPipe({
         /**
          * 1. SEGURIDAD Y LIMPIEZA (whitelist & forbidNonWhitelisted)
@@ -60,8 +72,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     },
 
     /**
-     * MIDDLEWARE: AllExceptionsFilter - Filtro Global - (Formato estandard de respuestas con errores / excepciones)
-     * ¿POR QUÉ ES NECESARIO?:
+     * PROVEEDOR: APP_FILTER - (Estandarización de respuestas con errores / excepciones)
      * Implementamos un filtro global para manejar excepciones de manera centralizada.
      * Cada vez que ocurra un error en la aplicación, nuestro filtro lo captura y
      * responde con una respuesta estándar que contiene:
@@ -80,7 +91,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     },
 
     /**
-     * MIDDLEWARE: ResponseInterceptor - Interceptor Global - (Formato estandard de respuestas success)
+     * PROVEEDOR: APP_INTERCEPTOR (Estandarización de Respuestas)
      * Registra el ResponseInterceptor de forma global.
      * ¿POR QUÉ USARLO?:
      * Sin un interceptor, cada controlador devuelve datos en formatos distintos.
@@ -100,6 +111,19 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,
+    },
+
+    // Autenticacion 6.1
+    /**
+     * PROVEEDOR: APP_GUARD (Seguridad por defecto)
+     * Al registrar JwtAuthGuard aquí, estamos activando el "Escudo Global".
+     * - Efecto: Cierra todas las rutas de la aplicación automáticamente.
+     * - Excepción: Solo las rutas marcadas con @Public() podrán ser accedidas.
+     * - Beneficio: Es más seguro "abrir" rutas específicas que olvidar "cerrar" una protegida.
+     */
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
     },
   ],
 })

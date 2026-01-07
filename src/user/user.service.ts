@@ -22,6 +22,14 @@ export class UserService {
     return userWithoutPassword;
   }
 
+  // Autenticacion 8.1
+  async findOneByEmail(email: string) {
+    return this.databaseService.user.findUnique({
+      where: { email },
+    });
+  }
+
+  // Autenticacion 8.2
   async create(data: CreateUserDto) {
     const user = await this.databaseService.user.create({ data });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -29,10 +37,10 @@ export class UserService {
     return userWithoutPassword;
   }
 
-  async update(id: number, dto: UpdateUserDto) {
+  async update(id: number, updateUserDto: UpdateUserDto) {
     const user = await this.databaseService.user.update({
       where: { id },
-      data: dto,
+      data: updateUserDto,
     });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, ...userWithoutPassword } = user;
