@@ -4,8 +4,9 @@ import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { UserModule } from './user/user.module';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_PIPE } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 @Module({
   imports: [
@@ -76,6 +77,29 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     {
       provide: APP_FILTER,
       useClass: AllExceptionsFilter,
+    },
+
+    /**
+     * MIDDLEWARE: ResponseInterceptor - Interceptor Global - (Formato estandard de respuestas success)
+     * Registra el ResponseInterceptor de forma global.
+     * ¿POR QUÉ USARLO?:
+     * Sin un interceptor, cada controlador devuelve datos en formatos distintos.
+     * Este interceptor actúa como un "envoltorio" (wrapper) universal para todas
+     * las respuestas exitosas (200, 201).
+     * VENTAJAS PARA EL DESARROLLO (Frontend & Móvil):
+     * - Consistencia: El cliente siempre recibe la misma estructura { success, data, timestamp }.
+     * - Predictibilidad: Facilita la creación de servicios de consumo (Axios/Fetch)
+     * que pueden manejar todas las respuestas bajo una sola lógica.
+     * - Metadata: Permite inyectar automáticamente información global (como la hora del
+     * servidor o la versión de la API) sin tocar un solo controlador.
+     * RELACIÓN CON EL FILTRO DE ERRORES:
+     * Mientras el Interceptor maneja los éxitos (success: true), el ExceptionFilter
+     * maneja los fallos (success: false). Juntos, garantizan que la API NUNCA
+     * devuelva una respuesta fuera del formato estandarizado.
+     */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ResponseInterceptor,
     },
   ],
 })
