@@ -9,13 +9,15 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { JwtAuthGuard } from './authentication/guards/jwt-auth.guard';
 import { AuthenticationModule } from './authentication/authentication.module';
+import { AuthorizationModule } from './authorization/authorization.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     DatabaseModule, // Modulo central para interactuar con la base de datos (ORM Prisma)
     UserModule,
-    AuthenticationModule, // Modulo que encapsula toda la lógica de JWT, Estrategias y autenticacion de usuarios
+    AuthenticationModule,
+    AuthorizationModule, // Modulo que encapsula toda la lógica de JWT, Estrategias y autenticacion de usuarios
   ],
 
   controllers: [AppController],

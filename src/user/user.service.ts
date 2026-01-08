@@ -2,9 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { DatabaseService } from 'src/database/database.service';
+import { ResourceLoader } from 'src/authorization/interfaces/resource-loader.interface';
 
 @Injectable()
-export class UserService {
+export class UserService implements ResourceLoader {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async findAll() {
@@ -52,6 +53,109 @@ export class UserService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, ...safe } = deleted;
     return safe;
+  }
+
+  /**
+   * Implementación de ResourceLoader para autorización.
+   * Carga solo los campos necesarios para validar permisos.
+   */
+  async loadResourceForAuthorization(id: number) {
+    const user = await this.databaseService.user.findUnique({
+      where: { id },
+      select: { id: true }, // Solo necesitamos el id para User
+    });
+    return user;
+  }
+
+  /**
+   * Obtiene los roles y permisos de un usuario de forma estructurada
+   * Incluye:
+   * - Roles asignados con sus permisos heredados
+   * - Permisos directos (grants y revokes)
+   */
+  async getUserPermissions(id: number) {
+    const user = await this.databaseService.user.findUnique({
+      where: { id },
+      include: {
+        roles: {
+          where: {
+            role: { isActive: true },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+          include: {
+            role: {
+              include: {
+                permissions: {
+                  include: {
+                    permission: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        directPermissions: {
+          where: {
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+          include: {
+            permission: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+
+    // Estructurar la respuesta
+    return {
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+
+      // Roles con sus permisos heredados
+      roles: user.roles.map((ur) => ({
+        roleName: ur.role.name,
+        roleDescription: ur.role.description,
+        assignedAt: ur.assignedAt,
+        expiresAt: ur.expiresAt,
+        permissions: ur.role.permissions.map((rp) => ({
+          action: rp.permission.action,
+          subject: rp.permission.subject,
+          conditions: rp.permission.conditions,
+          description: rp.permission.description,
+        })),
+      })),
+
+      // Permisos directos categorizados
+      directPermissions: {
+        grants: user.directPermissions
+          .filter((dp) => !dp.inverted)
+          .map((dp) => ({
+            action: dp.permission.action,
+            subject: dp.permission.subject,
+            conditions: dp.permission.conditions,
+            description: dp.permission.description,
+            reason: dp.reason,
+            assignedAt: dp.assignedAt,
+            expiresAt: dp.expiresAt,
+          })),
+
+        revokes: user.directPermissions
+          .filter((dp) => dp.inverted)
+          .map((dp) => ({
+            action: dp.permission.action,
+            subject: dp.permission.subject,
+            conditions: dp.permission.conditions,
+            description: dp.permission.description,
+            reason: dp.reason,
+            assignedAt: dp.assignedAt,
+            expiresAt: dp.expiresAt,
+          })),
+      },
+    };
   }
 
   // manualFireExceptionTest() {
