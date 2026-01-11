@@ -82,6 +82,7 @@ import {
   UserPermission,
   ActionEnum,
 } from 'generated/prisma/client';
+import { UserWithPermissions } from '../authorization.service';
 
 // ============================================================================
 // CLASES WRAPPER (Envoltorio para entidades de Prisma)
@@ -141,22 +142,16 @@ export class Post implements Partial<PrismaPost> {
  *
  * NOTA: Esta estructura viene del query en AuthorizationService.getUserWithPermissions()
  */
-export class User implements Partial<PrismaUser> {
-  constructor(partial: Partial<User>) {
+export class User implements Partial<UserWithPermissions> {
+  constructor(partial: unknown) {
     Object.assign(this, partial);
   }
   id!: number;
   email!: string;
-  roles!: (UserRole & {
-    role: Role & {
-      permissions: (RolePermission & {
-        permission: Permission;
-      })[];
-    };
-  })[];
-  directPermissions!: (UserPermission & {
-    permission: Permission;
-  })[];
+  name!: string;
+  isActive!: boolean;
+  roles!: UserWithPermissions['roles'];
+  directPermissions!: UserWithPermissions['directPermissions'];
 }
 
 // ============================================================================

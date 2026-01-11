@@ -62,7 +62,11 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { CaslAbilityFactory, AppAbility } from '../casl/casl-ability.factory';
+import {
+  CaslAbilityFactory,
+  AppAbility,
+  User,
+} from '../casl/casl-ability.factory';
 import { AuthorizationService } from '../authorization.service';
 import { CHECK_GLOBAL_KEY } from '../decorators/check-global.decorator';
 import { PolicyHandler } from '../interfaces/policy-handler.interface';
@@ -95,7 +99,7 @@ export class GlobalGuard implements CanActivate {
 
     if (!user) return false;
 
-    const ability = this.caslAbilityFactory.createAbility(user);
+    const ability = this.caslAbilityFactory.createAbility(new User(user));
 
     const isAllowed = policyHandlers.every((handler) =>
       this.execPolicyHandler(handler, ability),

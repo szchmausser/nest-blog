@@ -56,6 +56,74 @@ import {
 import { ActionEnum } from 'generated/prisma/client';
 import { DatabaseService } from 'src/database/database.service';
 import { CaslAbilityFactory, User, Post } from './casl/casl-ability.factory';
+import { Prisma } from 'generated/prisma/client';
+
+export const userWithPermissionsSelect = {
+  // NIVEL 1: Usuario
+  id: true,
+  name: true,
+  email: true,
+  isActive: true,
+
+  // NIVEL 2: Relación UserRole
+  roles: {
+    where: {
+      role: { isActive: true },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    select: {
+      assignedAt: true,
+      expiresAt: true,
+      // NIVEL 3: Relación Role
+      role: {
+        select: {
+          name: true,
+          description: true,
+          isActive: true, // Importante para lógica de negocio
+          // NIVEL 4: Relación RolePermission
+          permissions: {
+            select: {
+              // NIVEL 5: Relación Permission
+              permission: {
+                select: {
+                  action: true,
+                  subject: true,
+                  description: true,
+                  conditions: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  // NIVEL 2 (Rama B): Permisos Directos
+  directPermissions: {
+    where: {
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    select: {
+      inverted: true,
+      reason: true,
+      assignedAt: true,
+      expiresAt: true,
+      permission: {
+        select: {
+          action: true,
+          subject: true,
+          description: true,
+          conditions: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.UserSelect;
+
+export type UserWithPermissions = Prisma.UserGetPayload<{
+  select: typeof userWithPermissionsSelect;
+}>;
 
 @Injectable()
 export class AuthorizationService {
@@ -114,40 +182,77 @@ export class AuthorizationService {
    */
   async getUserWithPermissions(userId: number) {
     return await this.prisma.user.findFirst({
-      where: {
-        id: userId,
-        isActive: true,
-        deletedAt: null,
-      },
-      include: {
-        // Roles asignados al usuario
-        roles: {
-          where: {
-            // Solo roles activos
-            role: { isActive: true },
-            // Solo roles no expirados
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          },
-          include: {
-            role: {
-              include: {
-                // Permisos de cada rol
-                permissions: { include: { permission: true } },
-              },
-            },
-          },
-        },
-        // Permisos directos (grants y revokes)
-        directPermissions: {
-          where: {
-            // Solo permisos no expirados
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          },
-          include: { permission: true },
-        },
-      },
+      where: { id: userId, isActive: true, deletedAt: null },
+      select: userWithPermissionsSelect,
     });
   }
+
+  /* Cada vez que abres un par de llaves { ... } dentro de un include,
+  te teletransportas a la tabla relacionada y desde ese momento "estás parado" allí.
+  Todo lo que pidas dentro, debe existir en ese modelo nuevo.
+
+  Hagamos el recorrido de tu "mapa de salto" línea por línea:
+
+  El Viaje de la Consulta:
+  
+  Inicio: Estás en User. Seleccionas el usuario por su ID, activo y no eliminado.
+  Escribes include: { roles: ... }.
+  Salto: Te mueves a la tabla intermedia UserRole.
+  
+  Punto de vista: UserRole
+  Aquí es donde aplicas el filtro where (fecha, activo, etc.).
+  Miras a tu alrededor (en el schema.prisma de UserRole) y ves que hay una relación llamada role.
+  Escribes include: { role: ... }.
+  Salto: Te mueves a la tabla Role.
+  
+  Punto de vista: Role
+  Ahora estás parado en el Rol (ej. "ADMIN").
+  Miras el esquema de Role y ves que tiene permissions (que apunta a RolePermission).
+  Escribes include: { permissions: ... }.
+  Salto: Te mueves a la tabla intermedia RolePermission.
+  
+  Punto de vista: RolePermission
+  Estás en la tabla que conecta roles con permisos.
+  Miras el esquema y ves el campo permission (el permiso real).
+  Escribes include: { permission: true }.
+  Salto: Te mueves a la tabla Permission.
+  
+  Punto de vista: Permission
+  Fin: Estás en Permission.
+  Pones true porque ya llegaste al tesoro y quieres los datos de esa tabla.
+  
+  -----------------------------------------------------------------------
+  MAPA JERÁRQUICO DE RELACIONES (Modelo Actual → Relación → Nuevo Modelo)
+  -----------------------------------------------------------------------
+  
+  [User] (Modelo Actual)
+  │
+  ├── Relación: .roles -> nos lleva a cambiar el punto de vista a UserRole
+  │   ↓
+  │   [UserRole] (Nuevo Modelo Actual)
+  │   │
+  │   ├── Relación: .role -> nos lleva a cambiar el punto de vista a Role
+  │   │   ↓
+  │   │   [Role] (Nuevo Modelo Actual)
+  │   │   │
+  │   │   ├── Relación: .permissions -> nos lleva a cambiar el punto de vista a RolePermission
+  │   │   │   ↓
+  │   │   │   [RolePermission] (Nuevo Modelo Actual)
+  │   │   │   │
+  │   │   │   └── Relación: .permission -> nos lleva a cambiar el punto de vista a Permission
+  │   │   │       ↓
+  │   │   │       [Permission] (Modelo Final)
+  │
+  └── Relación: .directPermissions
+      ↓
+      [UserPermission] (Nuevo Modelo Actual)
+      │
+      └── Relación: .permission -> nos lleva a cambiar el punto de vista a Permission
+          ↓
+          [Permission] (Modelo Final)
+  
+  Si en el paso 3 (estando en Role) intentaras hacer include: { email: true }, fallaría, porque Role no tiene email.
+  El modelo mental de "dónde estoy parado" es infalible para no perderse en queries anidadas. */
 
   // ==========================================================================
   // MÉTODOS DE VERIFICACIÓN (Ejemplos de uso avanzado)
@@ -197,7 +302,8 @@ export class AuthorizationService {
 
     // Paso 3: Construir Ability
     // Envolvemos el usuario en la clase wrapper para CASL
-    const userWrapper = new User(user as Partial<User>);
+    // AHORA TIPO SEGURO: Usamos el tipo estricto UserWithPermissions
+    const userWrapper = new User(user);
     const ability = this.caslAbilityFactory.createAbility(userWrapper);
 
     // Paso 4: Evaluar permiso

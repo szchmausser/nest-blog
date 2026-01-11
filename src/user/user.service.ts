@@ -3,24 +3,44 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { DatabaseService } from 'src/database/database.service';
 import { ResourceLoader } from 'src/authorization/interfaces/resource-loader.interface';
+import { Prisma } from '../../generated/prisma/client';
+import { AuthorizationService } from 'src/authorization/authorization.service';
+
+const userPublicSelect: Prisma.UserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  isActive: true,
+  // roles: eliminado por performance, solo se pide cuando se necesita explícitamente
+  createdAt: true,
+  updatedAt: true,
+  lastLoginAt: true,
+  // Password implícitamente excluido
+};
 
 @Injectable()
 export class UserService implements ResourceLoader {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly authorizationService: AuthorizationService,
+  ) {}
 
   async findAll() {
-    const users = await this.databaseService.user.findMany();
+    const users = await this.databaseService.user.findMany({
+      select: userPublicSelect,
+    });
     return users;
   }
 
   async findOne(id: number) {
-    const user = await this.databaseService.user.findUnique({ where: { id } });
+    const user = await this.databaseService.user.findUnique({
+      where: { id },
+      select: userPublicSelect,
+    });
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    return user;
   }
 
   // Autenticacion 8.1
@@ -32,27 +52,28 @@ export class UserService implements ResourceLoader {
 
   // Autenticacion 8.2
   async create(data: CreateUserDto) {
-    const user = await this.databaseService.user.create({ data });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    const user = await this.databaseService.user.create({
+      data,
+      select: userPublicSelect,
+    });
+    return user;
   }
 
   async update(id: number, updateUserDto: UpdateUserDto) {
     const user = await this.databaseService.user.update({
       where: { id },
       data: updateUserDto,
+      select: userPublicSelect,
     });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    return user;
   }
 
   async remove(id: number) {
-    const deleted = await this.databaseService.user.delete({ where: { id } });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, ...safe } = deleted;
-    return safe;
+    const deleted = await this.databaseService.user.delete({
+      where: { id },
+      select: userPublicSelect,
+    });
+    return deleted;
   }
 
   /**
@@ -73,89 +94,63 @@ export class UserService implements ResourceLoader {
    * - Roles asignados con sus permisos heredados
    * - Permisos directos (grants y revokes)
    */
+
   async getUserPermissions(id: number) {
-    const user = await this.databaseService.user.findUnique({
-      where: { id },
-      include: {
-        roles: {
-          where: {
-            role: { isActive: true },
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          },
-          include: {
-            role: {
-              include: {
-                permissions: {
-                  include: {
-                    permission: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        directPermissions: {
-          where: {
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          },
-          include: {
-            permission: true,
-          },
-        },
-      },
-    });
+    const user = await this.authorizationService.getUserWithPermissions(id);
 
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
+    return user;
+
     // Estructurar la respuesta
-    return {
-      userId: user.id,
-      email: user.email,
-      name: user.name,
+    // return {
+    //   userId: user.id,
+    //   email: user.email,
+    //   name: user.name,
 
-      // Roles con sus permisos heredados
-      roles: user.roles.map((ur) => ({
-        roleName: ur.role.name,
-        roleDescription: ur.role.description,
-        assignedAt: ur.assignedAt,
-        expiresAt: ur.expiresAt,
-        permissions: ur.role.permissions.map((rp) => ({
-          action: rp.permission.action,
-          subject: rp.permission.subject,
-          conditions: rp.permission.conditions,
-          description: rp.permission.description,
-        })),
-      })),
+    //   // Roles con sus permisos heredados
+    //   roles: user.roles.map((ur) => ({
+    //     roleName: ur.role.name,
+    //     roleDescription: ur.role.description,
+    //     assignedAt: ur.assignedAt,
+    //     expiresAt: ur.expiresAt,
+    //     permissions: ur.role.permissions.map((rp) => ({
+    //       action: rp.permission.action,
+    //       subject: rp.permission.subject,
+    //       conditions: rp.permission.conditions,
+    //       description: rp.permission.description,
+    //     })),
+    //   })),
 
-      // Permisos directos categorizados
-      directPermissions: {
-        grants: user.directPermissions
-          .filter((dp) => !dp.inverted)
-          .map((dp) => ({
-            action: dp.permission.action,
-            subject: dp.permission.subject,
-            conditions: dp.permission.conditions,
-            description: dp.permission.description,
-            reason: dp.reason,
-            assignedAt: dp.assignedAt,
-            expiresAt: dp.expiresAt,
-          })),
+    //   // Permisos directos categorizados
+    //   directPermissions: {
+    //     grants: user.directPermissions
+    //       .filter((dp) => !dp.inverted)
+    //       .map((dp) => ({
+    //         action: dp.permission.action,
+    //         subject: dp.permission.subject,
+    //         conditions: dp.permission.conditions,
+    //         description: dp.permission.description,
+    //         reason: dp.reason,
+    //         assignedAt: dp.assignedAt,
+    //         expiresAt: dp.expiresAt,
+    //       })),
 
-        revokes: user.directPermissions
-          .filter((dp) => dp.inverted)
-          .map((dp) => ({
-            action: dp.permission.action,
-            subject: dp.permission.subject,
-            conditions: dp.permission.conditions,
-            description: dp.permission.description,
-            reason: dp.reason,
-            assignedAt: dp.assignedAt,
-            expiresAt: dp.expiresAt,
-          })),
-      },
-    };
+    //     revokes: user.directPermissions
+    //       .filter((dp) => dp.inverted)
+    //       .map((dp) => ({
+    //         action: dp.permission.action,
+    //         subject: dp.permission.subject,
+    //         conditions: dp.permission.conditions,
+    //         description: dp.permission.description,
+    //         reason: dp.reason,
+    //         assignedAt: dp.assignedAt,
+    //         expiresAt: dp.expiresAt,
+    //       })),
+    //   },
+    // };
   }
 
   // manualFireExceptionTest() {
