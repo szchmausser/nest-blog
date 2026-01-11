@@ -13,8 +13,8 @@
  *
  * DEPENDENCIAS EXTERNAS (npm):
  * ```bash
- * npm install @casl/ability @casl/prisma mustache lodash
- * npm install -D @types/mustache @types/lodash
+ * npm install @casl/ability drizzle-orm postgres mustache lodash
+ * npm install -D @types/mustache @types/lodash drizzle-kit
  * ```
  *
  * COMANDOS DE GENERACIÓN:
@@ -54,7 +54,7 @@
  * PARA REPLICAR EN OTRO PROYECTO:
  * 1. Copiar toda la carpeta src/authorization/
  * 2. Asegurarse de tener DatabaseModule configurado
- * 3. Configurar el schema de Prisma con los modelos de permisos
+ * 3. Configurar el schema de Drizzle con los modelos de permisos
  * 4. Importar AuthorizationModule en AppModule
  *
  * ============================================================================
@@ -70,7 +70,7 @@ import { GlobalGuard } from './guards/global.guard';
 @Module({
   /**
    * IMPORTS:
-   * - DatabaseModule: Provee acceso a Prisma para consultar permisos.
+   * - DatabaseModule: Provee acceso a Drizzle para consultar permisos.
    *   Es necesario porque AuthorizationService hace queries a la BD.
    */
   imports: [DatabaseModule],

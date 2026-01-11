@@ -73,7 +73,7 @@ import { Request } from 'express';
 import { CaslAbilityFactory, User, Post } from '../casl/casl-ability.factory';
 import { AuthorizationService } from '../authorization.service';
 import type { UserPayload } from 'src/authentication/interfaces/user-payload.interface';
-import { ActionEnum } from 'generated/prisma/client';
+import { ActionEnum } from 'src/database/types';
 import { ResourceLoader } from '../interfaces/resource-loader.interface';
 
 // ============================================================================
@@ -225,7 +225,6 @@ export class InstanceGuard implements CanActivate {
   private createResourceInstance(subject: string, data: any): User | Post {
     switch (subject) {
       case 'User':
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         return new User(data);
       case 'Post':
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument

@@ -14,7 +14,7 @@ import { AuthorizationModule } from './authorization/authorization.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    DatabaseModule, // Modulo central para interactuar con la base de datos (ORM Prisma)
+    DatabaseModule, // Modulo central para interactuar con la base de datos (ORM Drizzle)
     UserModule,
     AuthenticationModule,
     AuthorizationModule, // Modulo que encapsula toda la lógica de JWT, Estrategias y autenticacion de usuarios

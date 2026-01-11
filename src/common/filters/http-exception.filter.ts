@@ -6,9 +6,18 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { Prisma } from 'generated/prisma/client';
 import { ExceptionResponse } from '../interfaces/exception-response.interface';
-import { PrismaErrorMeta } from '../interfaces/prisma-errors-interface';
+
+/**
+ * Error de PostgreSQL con código específico
+ */
+interface PostgresError extends Error {
+  code?: string;
+  constraint?: string;
+  detail?: string;
+  table?: string;
+  column?: string;
+}
 
 /**
  * FILTRO DE EXCEPCIONES GLOBAL: AllExceptionsFilter
@@ -42,25 +51,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // 2. ANÁLISIS DE LA EXCEPCIÓN SEGÚN SU ORIGEN
 
-    // CASO A: Errores específicos de Prisma (Base de Datos)
-    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      // Delegamos la lógica compleja de traducción de códigos Prisma a un método especializado.
-      const prismaError = this.handlePrismaError(exception);
-      status = prismaError.status;
-      message = prismaError.message;
+    // CASO A: Errores de PostgreSQL (Base de Datos)
+    if (this.isPostgresError(exception)) {
+      const postgresError = this.handlePostgresError(exception);
+      status = postgresError.status;
+      message = postgresError.message;
     }
-    // CASO B: Errores de validación de esquema de Prisma (Query mal formada)
-    else if (exception instanceof Prisma.PrismaClientValidationError) {
-      status = HttpStatus.BAD_REQUEST;
-      message =
-        'Error de validación de datos en la persistencia (Esquema inválido).';
-    }
-    // CASO C: Errores de conexión/inicialización de Prisma
-    else if (exception instanceof Prisma.PrismaClientInitializationError) {
-      status = HttpStatus.SERVICE_UNAVAILABLE;
-      message = 'No se pudo establecer conexión con la base de datos.';
-    }
-    // CASO D: Excepciones estándar de NestJS (HttpException)
+    // CASO B: Excepciones estándar de NestJS (HttpException)
     else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
@@ -78,7 +75,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message = String(res);
       }
     }
-    // CASO E: Errores genéricos de JavaScript (SyntaxError, etc)
+    // CASO C: Errores genéricos de JavaScript (SyntaxError, etc)
     else if (exception instanceof Error) {
       /**
        * Si el error es una instancia de Error nativa tomamos su propiedad .message descriptiva.
@@ -101,68 +98,95 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   /**
-   * MÉTODO PRIVADO: handlePrismaError
-   * Centraliza la lógica de extracción de mensajes para errores conocidos de Prisma.
-   * Resuelve el problema de los Driver Adapters buscando profundamente en el objeto meta
-   * para identificar qué campo o relación causó el conflicto.
+   * Verifica si el error es un error de PostgreSQL
    */
-  private handlePrismaError(exception: Prisma.PrismaClientKnownRequestError): {
+  private isPostgresError(error: unknown): error is PostgresError {
+    return (
+      error instanceof Error &&
+      'code' in error &&
+      typeof (error as PostgresError).code === 'string'
+    );
+  }
+
+  /**
+   * MÉTODO PRIVADO: handlePostgresError
+   * Centraliza la lógica de extracción de mensajes para errores conocidos de PostgreSQL.
+   * Mapea códigos de error de PostgreSQL a mensajes amigables.
+   */
+  private handlePostgresError(exception: PostgresError): {
     status: number;
     message: string;
   } {
-    const meta = exception.meta as PrismaErrorMeta | undefined;
-    const model = meta?.modelName ? ` (${meta.modelName})` : '';
+    const code = exception.code;
+    const constraint = exception.constraint;
+    const table = exception.table;
+    const column = exception.column;
+    const model = table ? ` (${table})` : '';
 
     /**
-     * FUNCIÓN AUXILIAR: getFields
-     * Intenta extraer los nombres de los campos de tres lugares posibles:
-     * 1. meta.target (Estándar de Prisma)
-     * 2. driverAdapterError (Ruta específica para Driver Adapters/SQLite)
-     * 3. field_name (Errores de relación)
+     * FUNCIÓN AUXILIAR: getFieldName
+     * Intenta extraer el nombre del campo desde constraint, column, o detail
      */
-    const getFields = (): string => {
-      const rawFields =
-        meta?.target ||
-        meta?.driverAdapterError?.cause?.constraint?.fields ||
-        meta?.field_name;
-
-      if (Array.isArray(rawFields)) return rawFields.join(', ');
-      return typeof rawFields === 'string' ? rawFields : 'campo';
+    const getFieldName = (): string => {
+      if (column) return column;
+      if (constraint) {
+        // Los constraints suelen tener formato: tabla_campo_key o tabla_campo_fkey
+        const parts = constraint.split('_');
+        if (parts.length > 1) {
+          return parts.slice(1, -1).join('_');
+        }
+        return constraint;
+      }
+      if (exception.detail) {
+        // Detail suele ser: "Key (campo)=(valor) already exists."
+        const match = exception.detail.match(/Key \(([^)]+)\)/);
+        if (match) return match[1];
+      }
+      return 'campo';
     };
 
-    switch (exception.code) {
-      case 'P2002': // Unique constraint failed (Duplicados)
+    switch (code) {
+      case '23505': // Unique constraint violation
         return {
           status: HttpStatus.CONFLICT,
-          message: `Ya existe un registro con este valor en el campo: ${getFields()}${model}.`,
+          message: `Ya existe un registro con este valor en el campo: ${getFieldName()}${model}.`,
         };
-      case 'P2003': // Foreign key constraint failed (Relaciones)
+      case '23503': // Foreign key constraint violation
         return {
           status: HttpStatus.BAD_REQUEST,
-          message: `Error de referencia: El dato en '${getFields()}' no es válido en la relación${model}.`,
+          message: `Error de referencia: El dato en '${getFieldName()}' no es válido en la relación${model}.`,
         };
-      case 'P2005': // Invalid value for field
+      case '23502': // Not null constraint violation
         return {
           status: HttpStatus.BAD_REQUEST,
-          message: `El valor para '${getFields()}' es inválido para la base de datos${model}.`,
+          message: `El campo '${getFieldName()}' es requerido${model}.`,
         };
-      case 'P2006': // Invalid format for field
+      case '23514': // Check constraint violation
         return {
           status: HttpStatus.BAD_REQUEST,
-          message: `El formato para '${getFields()}' es inválido para la base de datos${model}.`,
+          message: `El valor para '${getFieldName()}' no cumple con las restricciones${model}.`,
         };
-      case 'P2025': {
-        const resource = meta?.modelName || meta?.cause || 'recurso';
+      case '42P01': // Undefined table
         return {
-          status: HttpStatus.NOT_FOUND,
-          message: `El ${resource} solicitado no existe o no fue encontrado.`,
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: `Error de base de datos: tabla no encontrada${model}.`,
         };
-      }
+      case '42703': // Undefined column
+        return {
+          status: HttpStatus.BAD_REQUEST,
+          message: `Error de base de datos: columna '${getFieldName()}' no encontrada${model}.`,
+        };
+      case '08003': // Connection does not exist
+      case '08006': // Connection failure
+        return {
+          status: HttpStatus.SERVICE_UNAVAILABLE,
+          message: 'No se pudo establecer conexión con la base de datos.',
+        };
       default:
         // Si el código no está mapeado, devolvemos un 400 genérico sin exponer detalles sensibles.
         return {
           status: HttpStatus.BAD_REQUEST,
-          message: `Error de base de datos (Prisma Code: ${exception.code})`,
+          message: `Error de base de datos${code ? ` (Código: ${code})` : ''}${model}.`,
         };
     }
   }

@@ -15,7 +15,7 @@ import { InstanceGuard } from 'src/authorization/guards/instance.guard';
 import { GlobalGuard } from 'src/authorization/guards/global.guard';
 import { CheckInstance } from 'src/authorization/decorators/check-instance.decorator';
 import { CheckGlobal } from 'src/authorization/decorators/check-global.decorator';
-import { ActionEnum } from 'generated/prisma/client';
+import { ActionEnum } from 'src/database/types';
 
 @Controller('user')
 export class UserController {

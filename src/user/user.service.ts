@@ -1,42 +1,61 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { DatabaseService } from 'src/database/database.service';
+import { DRIZZLE_DB } from 'src/database/database.module';
+import type { DrizzleDB } from 'src/database/database.module';
 import { ResourceLoader } from 'src/authorization/interfaces/resource-loader.interface';
-import { Prisma } from '../../generated/prisma/client';
 import { AuthorizationService } from 'src/authorization/authorization.service';
+import { users } from 'src/database/schemas';
+import { eq } from 'drizzle-orm';
 
-const userPublicSelect: Prisma.UserSelect = {
-  id: true,
-  name: true,
-  email: true,
-  isActive: true,
-  // roles: eliminado por performance, solo se pide cuando se necesita explícitamente
-  createdAt: true,
-  updatedAt: true,
-  lastLoginAt: true,
-  // Password implícitamente excluido
+/**
+ * Campos públicos de usuario (sin password)
+ */
+const userPublicFields = {
+  id: users.id,
+  name: users.name,
+  email: users.email,
+  isActive: users.isActive,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+  lastLoginAt: users.lastLoginAt,
 };
 
 @Injectable()
 export class UserService implements ResourceLoader {
   constructor(
-    private readonly databaseService: DatabaseService,
+    @Inject(DRIZZLE_DB) private readonly db: DrizzleDB,
     private readonly authorizationService: AuthorizationService,
   ) {}
 
   async findAll() {
-    const users = await this.databaseService.user.findMany({
-      select: userPublicSelect,
+    return this.db.query.users.findMany({
+      columns: {
+        id: true,
+        name: true,
+        email: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLoginAt: true,
+      },
     });
-    return users;
   }
 
   async findOne(id: number) {
-    const user = await this.databaseService.user.findUnique({
-      where: { id },
-      select: userPublicSelect,
+    const user = await this.db.query.users.findFirst({
+      where: eq(users.id, id),
+      columns: {
+        id: true,
+        name: true,
+        email: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLoginAt: true,
+      },
     });
+
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
@@ -45,35 +64,44 @@ export class UserService implements ResourceLoader {
 
   // Autenticacion 8.1
   async findOneByEmail(email: string) {
-    return this.databaseService.user.findUnique({
-      where: { email },
+    return this.db.query.users.findFirst({
+      where: eq(users.email, email),
     });
   }
 
   // Autenticacion 8.2
   async create(data: CreateUserDto) {
-    const user = await this.databaseService.user.create({
-      data,
-      select: userPublicSelect,
-    });
-    return user;
+    const result = await this.db
+      .insert(users)
+      .values(data)
+      .returning(userPublicFields);
+
+    return result[0];
   }
 
   async update(id: number, updateUserDto: UpdateUserDto) {
-    const user = await this.databaseService.user.update({
-      where: { id },
-      data: updateUserDto,
-      select: userPublicSelect,
-    });
-    return user;
+    const result = await this.db
+      .update(users)
+      .set(updateUserDto)
+      .where(eq(users.id, id))
+      .returning(userPublicFields);
+
+    if (result.length === 0) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+    return result[0];
   }
 
   async remove(id: number) {
-    const deleted = await this.databaseService.user.delete({
-      where: { id },
-      select: userPublicSelect,
-    });
-    return deleted;
+    const result = await this.db
+      .delete(users)
+      .where(eq(users.id, id))
+      .returning(userPublicFields);
+
+    if (result.length === 0) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+    return result[0];
   }
 
   /**
@@ -81,11 +109,10 @@ export class UserService implements ResourceLoader {
    * Carga solo los campos necesarios para validar permisos.
    */
   async loadResourceForAuthorization(id: number) {
-    const user = await this.databaseService.user.findUnique({
-      where: { id },
-      select: { id: true }, // Solo necesitamos el id para User
+    return this.db.query.users.findFirst({
+      where: eq(users.id, id),
+      columns: { id: true },
     });
-    return user;
   }
 
   /**
@@ -94,7 +121,6 @@ export class UserService implements ResourceLoader {
    * - Roles asignados con sus permisos heredados
    * - Permisos directos (grants y revokes)
    */
-
   async getUserPermissions(id: number) {
     const user = await this.authorizationService.getUserWithPermissions(id);
 
@@ -103,111 +129,5 @@ export class UserService implements ResourceLoader {
     }
 
     return user;
-
-    // Estructurar la respuesta
-    // return {
-    //   userId: user.id,
-    //   email: user.email,
-    //   name: user.name,
-
-    //   // Roles con sus permisos heredados
-    //   roles: user.roles.map((ur) => ({
-    //     roleName: ur.role.name,
-    //     roleDescription: ur.role.description,
-    //     assignedAt: ur.assignedAt,
-    //     expiresAt: ur.expiresAt,
-    //     permissions: ur.role.permissions.map((rp) => ({
-    //       action: rp.permission.action,
-    //       subject: rp.permission.subject,
-    //       conditions: rp.permission.conditions,
-    //       description: rp.permission.description,
-    //     })),
-    //   })),
-
-    //   // Permisos directos categorizados
-    //   directPermissions: {
-    //     grants: user.directPermissions
-    //       .filter((dp) => !dp.inverted)
-    //       .map((dp) => ({
-    //         action: dp.permission.action,
-    //         subject: dp.permission.subject,
-    //         conditions: dp.permission.conditions,
-    //         description: dp.permission.description,
-    //         reason: dp.reason,
-    //         assignedAt: dp.assignedAt,
-    //         expiresAt: dp.expiresAt,
-    //       })),
-
-    //     revokes: user.directPermissions
-    //       .filter((dp) => dp.inverted)
-    //       .map((dp) => ({
-    //         action: dp.permission.action,
-    //         subject: dp.permission.subject,
-    //         conditions: dp.permission.conditions,
-    //         description: dp.permission.description,
-    //         reason: dp.reason,
-    //         assignedAt: dp.assignedAt,
-    //         expiresAt: dp.expiresAt,
-    //       })),
-    //   },
-    // };
   }
-
-  // manualFireExceptionTest() {
-  // ----------------------------------------------------------------
-  // BLOQUE DE PRUEBA TEMPORAL PARA DISPARAR MANUALMENTE UN ERROR DE PRISMA
-  // ----------------------------------------------------------------
-  // throw new Prisma.PrismaClientKnownRequestError('Simulación de duplicado', {
-  //   code: 'P2003',
-  //   clientVersion: '7.2.0',
-  //   meta: {
-  //     modelName: 'User',
-  //     driverAdapterError: {
-  //       cause: {
-  //         constraint: { fields: ['email'] },
-  //       },
-  //     },
-  //   },
-  // });
-  // throw new Prisma.PrismaClientKnownRequestError('No encontrado', {
-  //   code: 'P2025',
-  //   clientVersion: '7.2.0',
-  //   meta: { modelName: 'Producto', cause: 'Record not found' },
-  // });
-  // throw new Prisma.PrismaClientKnownRequestError('Fallo de relación', {
-  //   code: 'P2003',
-  //   clientVersion: '7.2.0',
-  //   meta: { field_name: 'categoriaId', modelName: 'Producto' },
-  // });
-  // throw new Prisma.PrismaClientInitializationError(
-  //   'Error de conexión',
-  //   '7.2.0',
-  //   'P1001',
-  // );
-  // throw new Prisma.PrismaClientValidationError(
-  //   'Datos inconsistentes con el modelo',
-  //   {
-  //     clientVersion: '7.2.0',
-  //   },
-  // );
-  // throw new Prisma.PrismaClientKnownRequestError('Valor inválido', {
-  //   code: 'P2005',
-  //   clientVersion: '7.2.0',
-  //   meta: {
-  //     modelName: 'Producto',
-  //     field_name: 'precio', // <--- Aquí es donde tu filtro busca el dato
-  //   },
-  // });
-  // throw new Prisma.PrismaClientKnownRequestError('Valor inválido', {
-  //   code: 'P2006',
-  //   clientVersion: '7.2.0',
-  //   meta: {
-  //     modelName: 'Producto',
-  //     field_name: 'precio', // <--- Aquí es donde tu filtro busca el dato
-  //   },
-  // });
-  // ----------------------------------------------------------------
-  // Fin del bloque de prueba
-  // ----------------------------------------------------------------
-  // }
 }

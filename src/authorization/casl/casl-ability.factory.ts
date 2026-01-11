@@ -51,12 +51,12 @@
  *
  * DEPENDENCIAS:
  * - conditions-parser.util.ts: Interpola variables como {{id}} en condiciones.
- * - Prisma types: User, Post, Permission, Role, etc.
+ * - Types: User, Post, Permission, Role, etc. de src/database/types.
  *
  * PARA REPLICAR EN OTRO PROYECTO:
  * 1. Copiar este archivo.
  * 2. Copiar conditions-parser.util.ts (dependencia).
- * 3. Ajustar los tipos de Prisma a tu schema.
+ * 3. Ajustar los tipos a tu schema de Drizzle.
  * 4. Añadir nuevas clases wrapper para tus entidades (ej: Comment, Order).
  * 5. Actualizar el tipo Subjects con tus entidades.
  *
@@ -73,30 +73,24 @@ import {
 import { Injectable } from '@nestjs/common';
 import { parseConditions } from '../utils/conditions-parser.util';
 import {
-  User as PrismaUser,
-  Post as PrismaPost,
-  UserRole,
-  Role,
-  RolePermission,
-  Permission,
-  UserPermission,
   ActionEnum,
-} from 'generated/prisma/client';
-import { UserWithPermissions } from '../authorization.service';
+  UserWithPermissions,
+  Post as PostType,
+} from 'src/database/types';
 
 // ============================================================================
-// CLASES WRAPPER (Envoltorio para entidades de Prisma)
+// CLASES WRAPPER (Envoltorio para entidades de Drizzle)
 // ============================================================================
 
 /**
  * IMPORTANTE - ¿POR QUÉ NECESITAMOS ESTAS CLASES?
  *
  * CASL identifica el tipo de un objeto usando su constructor.name.
- * Los objetos retornados por Prisma son objetos planos (POJOs) sin clase.
+ * Los objetos retornados por Drizzle son objetos planos (POJOs) sin clase.
  * Al envolverlos en estas clases, CASL puede detectar correctamente el "subject".
  *
  * EJEMPLO:
- * - Objeto plano de Prisma: { id: 1, authorId: 5 } → constructor.name = "Object"
+ * - Objeto plano de Drizzle: { id: 1, authorId: 5 } → constructor.name = "Object"
  * - Envuelto en Post: new Post({ id: 1, authorId: 5 }) → constructor.name = "Post"
  *
  * CASL evalúa: ability.can('update', postWrapper) y detecta subject = "Post"
@@ -105,7 +99,7 @@ import { UserWithPermissions } from '../authorization.service';
 /**
  * Post Wrapper
  * ============
- * Envuelve objetos Post de Prisma para que CASL identifique el subject.
+ * Envuelve objetos Post de Drizzle para que CASL identifique el subject.
  *
  * CAMPOS REQUERIDOS PARA CASL:
  * - id: Identificador del recurso
@@ -117,8 +111,8 @@ import { UserWithPermissions } from '../authorization.service';
  * 2. Agregarla al tipo Subjects.
  * 3. Actualizar createResourceInstance() en instance.guard.ts
  */
-export class Post implements Partial<PrismaPost> {
-  constructor(partial: Partial<PrismaPost>) {
+export class Post implements Partial<PostType> {
+  constructor(partial: Partial<PostType>) {
     Object.assign(this, partial);
   }
   id!: number;
@@ -129,7 +123,7 @@ export class Post implements Partial<PrismaPost> {
 /**
  * User Wrapper
  * ============
- * Envuelve objetos User de Prisma con su jerarquía completa de permisos.
+ * Envuelve objetos User de Drizzle con su jerarquía completa de permisos.
  *
  * ESTRUCTURA COMPLETA:
  * User
@@ -249,7 +243,7 @@ export class CaslAbilityFactory {
       user.roles.forEach((ur) => {
         ur.role.permissions.forEach((rp) => {
           can(
-            rp.permission.action,
+            rp.permission.action as ActionEnum,
             rp.permission.subject,
             parseConditions(rp.permission.conditions, user),
           );
@@ -271,7 +265,7 @@ export class CaslAbilityFactory {
         .filter((dp) => !dp.inverted)
         .forEach((dp) => {
           can(
-            dp.permission.action,
+            dp.permission.action as ActionEnum,
             dp.permission.subject,
             parseConditions(dp.permission.conditions, user),
           );
@@ -295,7 +289,7 @@ export class CaslAbilityFactory {
         .filter((dp) => dp.inverted)
         .forEach((dp) => {
           cannot(
-            dp.permission.action,
+            dp.permission.action as ActionEnum,
             dp.permission.subject,
             parseConditions(dp.permission.conditions, user),
           ).because(dp.reason ?? '');

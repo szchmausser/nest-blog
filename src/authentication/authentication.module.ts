@@ -11,19 +11,20 @@ import { PassportModule } from '@nestjs/passport';
 import { UserModule } from 'src/user/user.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { DatabaseService } from 'src/database/database.service';
+import { DatabaseModule } from 'src/database/database.module';
 
 @Module({
   imports: [
     PassportModule,
     UserModule,
+    DatabaseModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'secretKey', // In production use environment variable
       signOptions: { expiresIn: '1h' },
     }),
   ],
   controllers: [AuthenticationController],
-  providers: [AuthenticationService, JwtStrategy, DatabaseService],
+  providers: [AuthenticationService, JwtStrategy],
   exports: [AuthenticationService],
 })
 export class AuthenticationModule {}

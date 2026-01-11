@@ -48,7 +48,7 @@
  * ```typescript
  * @Injectable()
  * export class UserService implements ResourceLoader {
- *   constructor(private readonly db: DatabaseService) {}
+ *   constructor(@Inject(DRIZZLE_DB) private readonly db: ReturnType<typeof drizzle>) {}
  *
  *   // ... otros métodos ...
  *
@@ -107,10 +107,11 @@ export interface ResourceLoader<T = any> {
    * @example
    * ```typescript
    * async loadResourceForAuthorization(id: number) {
-   *   return await this.prisma.post.findUnique({
-   *     where: { id },
-   *     select: { id: true, authorId: true },
-   *   });
+   *   return await this.db
+   *     .select({ id: users.id, authorId: users.authorId })
+   *     .from(users)
+   *     .where(eq(users.id, id))
+   *     .limit(1);
    * }
    * ```
    */
